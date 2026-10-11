@@ -11,7 +11,7 @@ let _client: ReturnType<typeof createClient> | null = null;
 export async function getDb() {
   if (!_db) {
     try { 
-      const dbPath = path.resolve(__dirname, "../../capture_data.db");
+      const dbPath = path.resolve(process.cwd(), "capture_data.db");
       _client = createClient({ url: `file:${dbPath}` });
       _db = drizzle(_client); 
     } catch (error) { 

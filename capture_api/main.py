@@ -46,6 +46,8 @@ app.include_router(curriculum.router)
 app.include_router(artifacts.router)
 app.include_router(study.router)
 app.include_router(profile.router)
+from routers import learnloop_v1
+app.include_router(learnloop_v1.router)
 
 
 

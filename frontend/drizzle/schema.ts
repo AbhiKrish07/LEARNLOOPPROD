@@ -131,6 +131,67 @@ export const sourceCards = sqliteTable("sourceCards", {
   createdAt: integer("createdAt", { mode: "timestamp" }).default(sql`(strftime(\'%s\', \'now\'))`).notNull(),
 }, table => ({ sourceCardIdx: uniqueIndex("source_card_idx").on(table.sourceId, table.cardId) }));
 
+// Fine-grained provenance keeps generated learning material auditable.  A
+// passage points to the original source and, for paginated documents, the
+// exact page and character range used to support a claim.
+export const sourcePassages = sqliteTable("sourcePassages", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  sourceId: integer("sourceId").notNull(),
+  pageNumber: integer("pageNumber"),
+  chapterTitle: text("chapterTitle", { length: 300 }),
+  text: text("text").notNull(),
+  startOffset: integer("startOffset"),
+  endOffset: integer("endOffset"),
+  confidence: real("confidence"),
+  createdAt: integer("createdAt", { mode: "timestamp" }).default(sql`(strftime('%s', 'now'))`).notNull(),
+}, table => ({ sourceIdx: index("passage_source_idx").on(table.sourceId) }));
+
+export const assessmentAttempts = sqliteTable("assessmentAttempts", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  userId: integer("userId").notNull(),
+  assessmentId: integer("assessmentId").notNull(),
+  selectedIndex: integer("selectedIndex").notNull(),
+  isCorrect: integer("isCorrect", { mode: "boolean" }).notNull(),
+  confidence: integer("confidence"),
+  durationSeconds: integer("durationSeconds"),
+  attemptedAt: integer("attemptedAt", { mode: "timestamp" }).default(sql`(strftime('%s', 'now'))`).notNull(),
+}, table => ({ userAssessmentIdx: index("attempt_user_assessment_idx").on(table.userId, table.assessmentId) }));
+
+export const reviewQueue = sqliteTable("reviewQueue", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  userId: integer("userId").notNull(),
+  courseId: integer("courseId"),
+  lessonId: integer("lessonId"),
+  dueAt: integer("dueAt", { mode: "timestamp" }).notNull(),
+  intervalDays: integer("intervalDays").default(1).notNull(),
+  easeFactor: real("easeFactor").default(2.5).notNull(),
+  status: text({ enum: ["due", "completed", "snoozed"] }).default("due").notNull(),
+  createdAt: integer("createdAt", { mode: "timestamp" }).default(sql`(strftime('%s', 'now'))`).notNull(),
+}, table => ({ userDueIdx: index("review_user_due_idx").on(table.userId, table.dueAt) }));
+
+export const assignments = sqliteTable("assignments", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  workspaceId: integer("workspaceId").notNull(),
+  courseId: integer("courseId"),
+  title: text("title", { length: 300 }).notNull(),
+  instructions: text("instructions"),
+  dueAt: integer("dueAt", { mode: "timestamp" }),
+  published: integer("published", { mode: "boolean" }).default(false).notNull(),
+  createdBy: integer("createdBy").notNull(),
+  createdAt: integer("createdAt", { mode: "timestamp" }).default(sql`(strftime('%s', 'now'))`).notNull(),
+}, table => ({ workspaceIdx: index("assignment_workspace_idx").on(table.workspaceId) }));
+
+export const activityEvents = sqliteTable("activityEvents", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  userId: integer("userId").notNull(),
+  workspaceId: integer("workspaceId"),
+  eventType: text("eventType", { length: 80 }).notNull(),
+  entityType: text("entityType", { length: 80 }),
+  entityId: text("entityId", { length: 80 }),
+  metadata: text("metadata"),
+  createdAt: integer("createdAt", { mode: "timestamp" }).default(sql`(strftime('%s', 'now'))`).notNull(),
+}, table => ({ userEventIdx: index("activity_user_event_idx").on(table.userId, table.createdAt) }));
+
 export const courses = sqliteTable("courses", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   workspaceId: integer("workspaceId").notNull(),
@@ -247,3 +308,8 @@ export type Assessment = typeof assessments.$inferSelect;
 export type CourseVersion = typeof courseVersions.$inferSelect;
 export type StudentMastery = typeof studentMastery.$inferSelect;
 export type UserPreferences = typeof userPreferences.$inferSelect;
+export type SourcePassage = typeof sourcePassages.$inferSelect;
+export type AssessmentAttempt = typeof assessmentAttempts.$inferSelect;
+export type ReviewQueueItem = typeof reviewQueue.$inferSelect;
+export type Assignment = typeof assignments.$inferSelect;
+export type ActivityEvent = typeof activityEvents.$inferSelect;

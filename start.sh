@@ -5,9 +5,20 @@
 set -e
 
 REPO_DIR="$(cd "$(dirname "$0")" && pwd)"
-NODE_BIN="$HOME/.nvm/versions/node/v20.20.2/bin"
-OLD_VENV="$HOME/Downloads/captureinprog-main 2/capture_api/venv"
-PYTHON="$OLD_VENV/bin/python"
+
+if [ -f "$REPO_DIR/venv/bin/python" ]; then
+  PYTHON="$REPO_DIR/venv/bin/python"
+elif [ -f "$REPO_DIR/capture_api/venv/bin/python" ]; then
+  PYTHON="$REPO_DIR/capture_api/venv/bin/python"
+else
+  PYTHON="python3"
+fi
+
+if [ -f "$HOME/.nvm/versions/node/v20.20.2/bin/node" ]; then
+  NODE_CMD="$HOME/.nvm/versions/node/v20.20.2/bin/node"
+else
+  NODE_CMD="node"
+fi
 
 echo "🔧 Starting Darwinity dev servers..."
 echo "   Repo: $REPO_DIR"
@@ -29,9 +40,8 @@ echo "  PID: $PYTHON_PID"
 # ── Start Node.js frontend on port 3000 ─────────────────────
 echo "🟢 Starting frontend on port 3000..."
 cd "$REPO_DIR/frontend"
-"$NODE_BIN/node" --require node_modules/tsx/dist/preflight.cjs \
-  --import "file://$(pwd)/node_modules/tsx/dist/loader.mjs" \
-  server/_core/index.ts --port 3000 > "$REPO_DIR/.logs/frontend.log" 2>&1 &
+npx tsx server/_core/index.ts --port 3000 > "$REPO_DIR/.logs/frontend.log" 2>&1 &
+
 NODE_PID=$!
 echo "  PID: $NODE_PID"
 

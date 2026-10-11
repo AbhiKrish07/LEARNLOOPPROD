@@ -58,6 +58,10 @@ memory-main/
 capture_data.db-shm
 capture_data.db-wal
 capture_api/course_export.zip
+learnloop (2)/
+learnloop-resonance/
+native/
+.dev-store.json
 uploads/
 frontend/.dev-store.json
 dist/
