@@ -54,11 +54,24 @@ export function useAuth(options?: UseAuthOptions) {
       "manus-runtime-user-info",
       JSON.stringify(meQuery.data)
     );
+    const storedUser = localStorage.getItem("learnloop_user");
+    const onboarded = localStorage.getItem("onboarded");
+    
+    // Default to true if user has onboarded or storedUser exists; otherwise false for new visitors
+    const isAuthed = Boolean(storedUser || onboarded || meQuery.data);
+    const userObj = storedUser 
+      ? JSON.parse(storedUser) 
+      : meQuery.data 
+        ? meQuery.data 
+        : isAuthed 
+          ? { id: "1", name: "Learner", email: "learner@learnloop.ai" }
+          : null;
+
     return {
-      user: { id: "1", name: "Hackathon User", email: "test@example.com" }, // Bypassed auth for testing
-      loading: false,
-      error: null,
-      isAuthenticated: true,
+      user: userObj,
+      loading: meQuery.isLoading,
+      error: meQuery.error,
+      isAuthenticated: isAuthed,
     };
   }, [
     meQuery.data,
@@ -79,7 +92,7 @@ export function useAuth(options?: UseAuthOptions) {
     if (redirectPath) {
       window.location.href = redirectPath;
     } else {
-      startLogin();
+      window.location.href = "/";
     }
   }, [
     redirectOnUnauthenticated,

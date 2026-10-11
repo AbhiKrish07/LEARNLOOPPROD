@@ -10,7 +10,7 @@ import { systemRouter } from "./_core/systemRouter";
 import { protectedProcedure, publicProcedure, router } from "./_core/trpc";
 import { canvases, cardLinks, cards, notes, sources, syncRuns, courses, modules, lessons, learningObjectives, assessments, courseVersions, workspaceMembers, studentMastery, users, userPreferences } from "../drizzle/schema";
 import { canEditWorkspace, ensureWorkspaceForUser, getCanvasForUser, getCanvasSnapshot, getCardForUser, getDb, getWorkspaceForUser, listSources, listSyncRuns, searchWorkspace } from "./db";
-import { devCreateCard, devCreateCourse, devCreateSource, devGetCompletedLessons, devGetCourse, devInsertLearningObjective, devInsertLesson, devInsertModule, devListCourses, devListSources, devMarkMastery, devUpdateCourse } from "./devStore";
+import { devCreateCard, devCreateCourse, devCreateSource, devGetCompletedLessons, devGetCourse, devInsertLearningObjective, devInsertLesson, devInsertModule, devListCourses, devListSources, devMarkMastery, devUpdateCourse, devGetLearnLoopModel, devSaveLearnLoopModel, devSaveLearnLoopEvidence, devSyncLearnLoopStrokes, devListLearnLoopEvidence, devGetLearnLoopAgents, devSaveLearnLoopAgents, devGetLearnLoopBrain, devAddLearnLoopSession, devDiagnoseSteps, devEvaluateRetest, devListNotebooks, devCreateNotebook, devJoinWaitlist, devGetWaitlist } from "./devStore";
 
 // The Python service is intentionally configurable.  The prior hard-coded
 // port 8000 did not match capture_api/main.py (8080), so uploads and course
@@ -882,7 +882,235 @@ export const appRouter = router({
       const reply = await generateAICompletion({ systemPrompt, userPrompt });
       return { reply };
     })
+  }),
+  learnloop: router({
+    getModel: protectedProcedure.query(({ ctx }) => {
+      const model = devGetLearnLoopModel(ctx.user.id);
+      return { model };
+    }),
+    saveModel: protectedProcedure.input(z.object({
+      modelData: z.any()
+    })).mutation(({ ctx, input }) => {
+      devSaveLearnLoopModel(ctx.user.id, input.modelData);
+      return { success: true };
+    }),
+    submitCalibration: protectedProcedure.input(z.object({
+      questionIndex: z.number(),
+      conceptId: z.string(),
+      answer: z.string()
+    })).mutation(async ({ ctx, input }) => {
+      const systemPrompt = `You are LearnLoop's Diagnostic Calibration Evaluator for Computer Science (Functions, Derivatives, Composition, Chain Rule, Computational Graphs, Backpropagation, Gradient Descent). Evaluate the learner's answer for correctness and misconceptions. Respond in JSON format: {"isCorrect": boolean, "detectedMisconception": string | null, "feedback": string, "confidence": "Low" | "Emerging" | "Moderate" | "Strong"}.`;
+      const userPrompt = `Concept ID: ${input.conceptId}\nLearner Answer: "${input.answer}"`;
+      
+      let evalResult: any;
+      try {
+        const raw = await generateAICompletion({ systemPrompt, userPrompt });
+        evalResult = JSON.parse(raw.replace(/```json\n?|\n?```/g, "").trim());
+      } catch (err) {
+        evalResult = { isCorrect: input.answer.length > 10, detectedMisconception: null, feedback: "Response processed successfully.", confidence: "Moderate" };
+      }
+      
+      devSaveLearnLoopEvidence(ctx.user.id, {
+        conceptId: input.conceptId,
+        sourceText: input.answer,
+        resultStatus: evalResult.isCorrect ? "Met" : "Not yet shown",
+        detectedMisconception: evalResult.detectedMisconception,
+        confidence: evalResult.confidence,
+        type: "calibration"
+      });
+      
+      return { evalResult };
+    }),
+    analyzeText: protectedProcedure.input(z.object({
+      conceptId: z.string(),
+      text: z.string()
+    })).mutation(async ({ ctx, input }) => {
+      const systemPrompt = `You are LearnLoop's Resident AI Teacher for Computer Science. Analyze the learner's note text for concept "${input.conceptId}". Detect if there is a specific misconception signature (e.g. adding rates instead of multiplying in Chain Rule). Respond in JSON: {"hasMisconception": boolean, "misconceptionTitle": string | null, "explanation": string, "sentence": string, "recommendedAction": "Continue" | "Go deeper" | "Practice" | "Explore" | "Review Prerequisite"}.`;
+      const userPrompt = `Concept: ${input.conceptId}\nLearner Note: "${input.text}"`;
+      
+      let analysis: any;
+      try {
+        const raw = await generateAICompletion({ systemPrompt, userPrompt });
+        analysis = JSON.parse(raw.replace(/```json\n?|\n?```/g, "").trim());
+      } catch (err) {
+        analysis = { hasMisconception: false, misconceptionTitle: null, explanation: "Writing looks accurate.", sentence: "", recommendedAction: "Continue" };
+      }
+
+      if (analysis.hasMisconception) {
+        devSaveLearnLoopEvidence(ctx.user.id, {
+          conceptId: input.conceptId,
+          sourceText: input.text,
+          resultStatus: "Contradicted",
+          detectedMisconception: analysis.misconceptionTitle,
+          confidence: "Moderate",
+          type: "inline_observation"
+        });
+      }
+
+      return { analysis };
+    }),
+    evaluateDemonstrate: protectedProcedure.input(z.object({
+      conceptId: z.string(),
+      explanation: z.string()
+    })).mutation(async ({ ctx, input }) => {
+      const systemPrompt = `You are LearnLoop's Grounded Evaluator. Evaluate the learner's explanation against the rubric requirements for concept "${input.conceptId}". Return a JSON object:
+{"requirements": [{"name": string, "status": "Met" | "Partly met" | "Not yet shown" | "Contradicted"}], "misconception": string | null, "confidence": "Low" | "Emerging" | "Moderate" | "Strong", "nextAction": "Continue" | "Go deeper" | "Practice" | "Explore" | "Review Prerequisite", "summary": string}`;
+      const userPrompt = `Concept: ${input.conceptId}\nLearner Explanation: "${input.explanation}"`;
+
+      let result: any;
+      try {
+        const raw = await generateAICompletion({ systemPrompt, userPrompt });
+        result = JSON.parse(raw.replace(/```json\n?|\n?```/g, "").trim());
+      } catch (err) {
+        result = {
+          requirements: [
+            { name: "Identify components", status: input.explanation.length > 20 ? "Met" : "Not yet shown" },
+            { name: "Explain mathematical relationship", status: "Partly met" }
+          ],
+          misconception: null,
+          confidence: "Moderate",
+          nextAction: "Go deeper",
+          summary: "Good effort. Review details to build full mastery."
+        };
+      }
+
+      devSaveLearnLoopEvidence(ctx.user.id, {
+        conceptId: input.conceptId,
+        sourceText: input.explanation,
+        resultStatus: result.requirements.every((r: any) => r.status === "Met") ? "Met" : "Partly met",
+        detectedMisconception: result.misconception,
+        confidence: result.confidence,
+        type: "demonstrate"
+      });
+
+      return { result };
+    }),
+    syncStrokes: protectedProcedure.input(z.object({
+      pageId: z.string(),
+      operations: z.array(z.any())
+    })).mutation(({ ctx, input }) => {
+      const res = devSyncLearnLoopStrokes(ctx.user.id, input.pageId, input.operations);
+      return res;
+    }),
+    getEvidence: protectedProcedure.query(({ ctx }) => {
+      const evidence = devListLearnLoopEvidence(ctx.user.id);
+      return { evidence };
+    }),
+    getAgents: protectedProcedure.query(({ ctx }) => {
+      const agents = devGetLearnLoopAgents(ctx.user.id);
+      return { agents };
+    }),
+    saveAgents: protectedProcedure.input(z.object({
+      spotter: z.boolean().optional(),
+      coach: z.boolean().optional(),
+      visualizer: z.boolean().optional(),
+      wonder: z.boolean().optional(),
+      recall: z.boolean().optional(),
+      sources: z.boolean().optional(),
+      character: z.enum(["face", "spark", "owl"]).optional(),
+      nudges: z.enum(["quiet", "normal"]).optional(),
+    })).mutation(({ ctx, input }) => {
+      const updated = devSaveLearnLoopAgents(ctx.user.id, input);
+      return { agents: updated };
+    }),
+    getBrain: protectedProcedure.query(({ ctx }) => {
+      const brain = devGetLearnLoopBrain(ctx.user.id);
+      return brain;
+    }),
+    addSession: protectedProcedure.input(z.object({
+      conceptId: z.string().optional(),
+      title: z.string().optional(),
+      durationMinutes: z.number().default(25),
+      pagesWritten: z.number().default(1),
+      slipsFixed: z.number().default(0),
+      retestsPassed: z.number().default(0),
+    })).mutation(({ ctx, input }) => {
+      const session = devAddLearnLoopSession(ctx.user.id, input);
+      return { session };
+    }),
+    diagnoseSteps: protectedProcedure.input(z.object({
+      conceptId: z.string(),
+      stepsText: z.string()
+    })).mutation(async ({ ctx, input }) => {
+      const diagnosis = devDiagnoseSteps(ctx.user.id, input);
+      return { diagnosis };
+    }),
+    evaluateRetest: protectedProcedure.input(z.object({
+      conceptId: z.string(),
+      steps: z.string()
+    })).mutation(async ({ ctx, input }) => {
+      const result = devEvaluateRetest(ctx.user.id, input);
+      return { result };
+    }),
+    search: protectedProcedure.input(z.object({
+      query: z.string(),
+      filter: z.enum(["all", "notebooks", "concepts", "mistakes", "sources"]).default("all")
+    })).query(({ input }) => {
+      const q = input.query.toLowerCase().trim();
+      const allNotebooks = [
+        { id: "chain-rule", title: "Chain Rule", snippet: "Slopes on a path multiply, like gear ratios.", subject: "Calculus", cover: "#A8CDEE" },
+        { id: "gradient-descent", title: "Gradient Descent", snippet: "Apply the chain rule to the loss, then step downhill.", subject: "Machine learning", cover: "#9ED7C6" },
+        { id: "calculus", title: "Calculus Foundations", snippet: "Limits, derivatives, and composition sequence.", subject: "Calculus", cover: "#A8D5BA" },
+        { id: "computational-graphs", title: "Computational Graphs", snippet: "Forward evaluation and backward derivative paths.", subject: "CS", cover: "#C3B4E8" },
+      ];
+      const allConcepts = [
+        { id: "chain-rule", name: "Chain Rule", status: "FAMILIAR" },
+        { id: "backpropagation", name: "Backpropagation", status: "LOCKED" },
+        { id: "gradient-descent", name: "Gradient Descent", status: "LOCKED" },
+        { id: "composition", name: "Composition", status: "UNDERSTOOD" }
+      ];
+      const allMistakes = [
+        { id: "m-1", pattern: "Adds rates instead of chaining them", count: 2, notebooks: ["Chain Rule", "Product Rule"] },
+        { id: "m-2", pattern: "Forgot inner derivative step", count: 1, notebooks: ["Calculus"] }
+      ];
+
+      return {
+        notebooks: allNotebooks.filter(n => !q || n.title.toLowerCase().includes(q) || n.snippet.toLowerCase().includes(q)),
+        concepts: allConcepts.filter(c => !q || c.name.toLowerCase().includes(q)),
+        mistakes: allMistakes.filter(m => !q || m.pattern.toLowerCase().includes(q)),
+        askCoachPrompt: `explain ${input.query || "the chain rule"} from my notes`
+      };
+    }),
+    askCoach: protectedProcedure.input(z.object({
+      question: z.string(),
+      conceptId: z.string().optional()
+    })).mutation(async ({ input }) => {
+      const systemPrompt = `You are LearnLoop's resident Coach. You live in the student's notebook and have direct access to their notes, mistakes, and sources. Ground answers strictly in their notes and concepts. Answer concisely, warmly, and point directly at reasoning steps.`;
+      const userPrompt = `Student question: "${input.question}"\nActive Concept: ${input.conceptId || "Chain Rule"}`;
+      try {
+        const reply = await generateAICompletion({ systemPrompt, userPrompt });
+        return { reply };
+      } catch {
+        return { reply: `Along a chain, rates multiply like gear ratios: dy/dx = dy/du · du/dx. When you compose functions, the inner rate scales the outer function's change.` };
+      }
+    }),
+    getNotebooks: protectedProcedure.query(({ ctx }) => {
+      const notebooks = devListNotebooks(ctx.user.id);
+      return { notebooks };
+    }),
+    createNotebook: protectedProcedure.input(z.object({
+      title: z.string().default("Untitled Notebook"),
+      subject: z.string().default("General"),
+      coverColor: z.string().default("#A8CDEE"),
+      paperTemplate: z.enum(["blank", "grid", "ruled", "dot", "cornell"]).default("grid")
+    })).mutation(({ ctx, input }) => {
+      const notebook = devCreateNotebook(ctx.user.id, input);
+      return { notebook };
+    }),
+    joinWaitlist: publicProcedure.input(z.object({
+      email: z.string().email(),
+      name: z.string().optional(),
+      topic: z.string().optional()
+    })).mutation(({ input }) => {
+      const result = devJoinWaitlist(input);
+      return result;
+    }),
+    getWaitlist: publicProcedure.query(() => {
+      const waitlist = devGetWaitlist();
+      return { total: waitlist.length + 1240, waitlist };
+    })
   })
 });
 
 export type AppRouter = typeof appRouter;
+

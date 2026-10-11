@@ -52,17 +52,78 @@ export function CourseView() {
     );
   }
 
-  if (!course) {
-    console.error("Course Not Found. courseId:", courseIdParam, "isError:", isError, "error:", error);
+  // If no specific course ID is provided or course not found, render the complete AI Courses Catalog
+  if (!courseIdParam || !course) {
+    const allCoursesList = Array.from(new Map(
+      [...darwinityState.courses, ...initialCourses].map(c => [c.id, c])
+    ).values());
+
     return (
-      <div className="flex-1 flex items-center justify-center h-[80vh] text-foreground">
-        <div className="text-center p-8 bg-card rounded-xl border border-border shadow-sm">
-          <h2 className="text-2xl font-bold mb-2">Course Not Found</h2>
-          <p className="text-muted-foreground mb-4">The course you are looking for does not exist or has been deleted.</p>
-          {isError && <p className="text-destructive mb-4 text-sm">{error?.message}</p>}
-          <Button onClick={() => setLocation('/')} className="bg-primary hover:opacity-90 text-primary-foreground font-bold">
-            Back to Home
+      <div className="max-w-6xl mx-auto py-8 px-6 font-sans min-h-screen">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
+          <div>
+            <div className="flex items-center gap-2 text-emerald-600 font-bold text-xs uppercase tracking-wider mb-1">
+              <Brain size={16} /> Adaptive Curriculums
+            </div>
+            <h1 className="text-3xl font-black text-gray-900 tracking-tight">Your AI Learning Courses</h1>
+            <p className="text-gray-500 text-sm mt-1">Master topics with personalized 10-level adaptive learning paths.</p>
+          </div>
+          
+          <Button 
+            onClick={() => setLocation('/course-builder')} 
+            className="bg-[#5B5CE2] hover:bg-[#4b4cd1] text-white font-bold px-6 py-3 rounded-xl shadow-sm flex items-center gap-2"
+          >
+            <Sparkles size={18} /> Create New AI Course
           </Button>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {allCoursesList.map((c: any) => {
+            const lessonsCount = c.lessons?.length || (c.modules || []).flatMap((m: any) => m.lessons || []).length || 10;
+            const completed = c.mastery?.completedLessons || 0;
+            const pct = Math.round((completed / Math.max(1, lessonsCount)) * 100);
+
+            return (
+              <div 
+                key={c.id}
+                onClick={() => setLocation(`/courses/${c.id}`)}
+                className="group bg-white rounded-2xl border border-gray-200 p-6 hover:shadow-xl hover:border-[#5B5CE2]/50 transition-all cursor-pointer flex flex-col justify-between"
+              >
+                <div>
+                  <div className="flex items-center justify-between mb-4">
+                    <div className="w-12 h-12 rounded-xl bg-purple-50 text-[#5B5CE2] flex items-center justify-center font-bold">
+                      <BookOpen size={24} />
+                    </div>
+                    <span className="text-xs font-bold uppercase tracking-wider px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-100">
+                      {c.level || "Intermediate"}
+                    </span>
+                  </div>
+
+                  <h3 className="font-extrabold text-lg text-gray-900 group-hover:text-[#5B5CE2] transition-colors mb-2 line-clamp-2">
+                    {c.title}
+                  </h3>
+                  <p className="text-xs text-gray-500 line-clamp-2 mb-6">
+                    {c.description || "Comprehensive 10-level adaptive curriculum built for concept mastery."}
+                  </p>
+                </div>
+
+                <div className="space-y-4 pt-4 border-t border-gray-100">
+                  <div className="flex items-center justify-between text-xs text-gray-600 font-semibold">
+                    <span>{lessonsCount} Levels</span>
+                    <span>{pct}% Complete</span>
+                  </div>
+                  <div className="w-full h-2 bg-gray-100 rounded-full overflow-hidden">
+                    <div className="h-full bg-gradient-to-r from-[#5B5CE2] to-emerald-500 rounded-full transition-all duration-500" style={{ width: `${pct}%` }} />
+                  </div>
+                  
+                  <div className="flex items-center justify-between pt-2 text-sm font-bold text-[#5B5CE2]">
+                    <span>Open Course Path</span>
+                    <ChevronRight size={18} className="group-hover:translate-x-1 transition-transform" />
+                  </div>
+                </div>
+              </div>
+            );
+          })}
         </div>
       </div>
     );

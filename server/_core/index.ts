@@ -6,6 +6,7 @@ import { createExpressMiddleware } from "@trpc/server/adapters/express";
 import { registerOAuthRoutes } from "./oauth";
 import { registerStorageProxy } from "./storageProxy";
 import { appRouter } from "../routers";
+import { apiV1Router } from "../apiV1";
 import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
 
@@ -34,8 +35,22 @@ async function startServer() {
   // Configure body parser with larger size limit for file uploads
   app.use(express.json({ limit: "50mb" }));
   app.use(express.urlencoded({ limit: "50mb", extended: true }));
+  // Healthcheck endpoints for production monitoring & load balancers
+  app.get(["/health", "/api/health"], (_req, res) => {
+    res.status(200).json({
+      status: "healthy",
+      service: "learnloop-api",
+      environment: process.env.NODE_ENV || "production",
+      uptimeSeconds: Math.floor(process.uptime()),
+      timestamp: new Date().toISOString(),
+      version: "1.0.0"
+    });
+  });
+
   registerStorageProxy(app);
   registerOAuthRoutes(app);
+  // Complete REST API v1
+  app.use("/api/v1", apiV1Router);
   // tRPC API
   app.use(
     "/api/trpc",
@@ -58,9 +73,26 @@ async function startServer() {
     console.log(`Port ${preferredPort} is busy, using port ${port} instead`);
   }
 
-  server.listen(port, () => {
-    console.log(`Server running on http://localhost:${port}/`);
+  server.listen(port, "0.0.0.0", () => {
+    console.log(`LearnLoop Production Server running on http://0.0.0.0:${port}/`);
+    console.log(`Health check ready at http://0.0.0.0:${port}/health`);
   });
+
+  // Graceful shutdown
+  const shutdown = (signal: string) => {
+    console.log(`\nReceived ${signal}. Gracefully stopping server...`);
+    server.close(() => {
+      console.log("Server closed cleanly.");
+      process.exit(0);
+    });
+    setTimeout(() => {
+      console.error("Force exit after 10s timeout.");
+      process.exit(1);
+    }, 10000).unref();
+  };
+
+  process.on("SIGTERM", () => shutdown("SIGTERM"));
+  process.on("SIGINT", () => shutdown("SIGINT"));
 }
 
 startServer().catch(console.error);
